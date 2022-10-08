@@ -9,22 +9,19 @@
 #include "io/conversion.h"
 
 class Controller {
-  using FORMAT = const char *;
+  using FORMAT = const char*;
 
  public:
-  enum class ParseState {
-    WAIT_COMMAND = 0,
-    WAIT_PARAM,
-    WAIT_EOL
-  };
+  enum class State { WAIT_COMMAND = 0, WAIT_PARAM1, COLLECT_PARAM1, WAIT_PARAM2, COLLECT_PARAM2};
+  enum class Command { STATUS = 0, UPDATE_LED };
 
-  auto static get() -> Controller &;
+  auto static get() -> Controller&;
 
   Controller();
 
-  auto read_buffer() -> std::pair<uint8_t *, size_t>;
+  auto read_buffer() -> std::pair<uint8_t*, size_t>;
   auto read_done(size_t length) -> void;
-  auto write_buffer() -> std::pair<const char *, size_t>;
+  auto write_buffer() -> std::pair<const char*, size_t>;
   auto write_done(size_t length) -> void;
 
   auto putc(char c) -> bool;
@@ -40,8 +37,16 @@ class Controller {
   static uint8_t rx_buffer_[RX_BUFFER_SIZE];
 
   auto parse(char c) -> void;
+  auto command(char c) -> void;
+  auto wait_param1(char c) -> void;
+  auto collect_param1(char c) -> void;
+  auto wait_param2(char c) -> void;
+  auto collect_param2(char c) -> void;
 
-  ParseState parse_state_;
+  State state_;
+  Command command_;
+  unsigned param1_;
+  unsigned param2_;
   size_t tx_index_;
   size_t tx_sent_;
 };

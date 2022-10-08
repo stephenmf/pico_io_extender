@@ -1,16 +1,34 @@
 #include "controller/controller.h"
 
+namespace {
+
+auto perform_command(Controller::Command command, unsigned param1,
+                     unsigned param2) -> void {
+  auto &controller = Controller::get();
+  switch (command) {
+    case Controller::Command::STATUS:
+      controller.printf("{\"led\":\"undefined\"}\r\n");
+      break;
+    case Controller::Command::UPDATE_LED:
+      controller.printf("{\"led\":%s}\r\n", (param2) ? "true" : "false");
+      break;
+  }
+}
+
+}  // namespace
 
 auto Controller::get() -> Controller & {
-  static Controller console{};
-  return console;
+  static Controller controller{};
+  return controller;
 }
 
 Controller::Controller()
-    : parse_state_{ParseState::WAIT_COMMAND},
+    : state_{State::WAIT_COMMAND},
+      command_{Command::STATUS},
+      param1_{0},
+      param2_{0},
       tx_index_{0},
-      tx_sent_{0} {
-}
+      tx_sent_{0} {}
 
 auto Controller::read_buffer() -> std::pair<uint8_t *, size_t> {
   return std::pair<uint8_t *, size_t>{rx_buffer_, sizeof(rx_buffer_)};
@@ -21,10 +39,6 @@ auto Controller::read_done(size_t length) -> void {
     auto c = rx_buffer_[i];
     parse(c);
   }
-}
-
-auto Controller::parse(char c) -> void {
-   printf("response: 0x%02X\r\n", (int)c);
 }
 
 auto Controller::write_buffer() -> std::pair<const char *, size_t> {
@@ -80,7 +94,8 @@ auto Controller::vprintf(FORMAT format, va_list args) -> int {
           auto value = va_arg(args, int);
           buffer = conversion_.from_character(value);
         } break;
-        case Conversion::Type::SIGNED_INT: {
+        case Conversion::Type::SIGNED_INT: {      auto& controller = Controller::get();
+
           auto value = va_arg(args, int);
           buffer = conversion_.from_signed_int(value);
         } break;
@@ -130,232 +145,144 @@ auto Controller::vprintf(FORMAT format, va_list args) -> int {
   return result;
 }
 
-#if 0
-auto Controller::edit(KeyAction action, char c) -> bool {
-  switch (action) {
-    case KeyAction::NONE:
+auto Controller::parse(char c) -> void {
+  switch (state_) {
+    case State::WAIT_COMMAND:
+      command(c);
       break;
-    case KeyAction::PROCESS:
-      return true;
+    case State::WAIT_PARAM1:
+      wait_param1(c);
       break;
-    case KeyAction::ADD:
-      if (edit_.end < (sizeof(edit_.buffer) - 1) &&
-          edit_.cursor < (sizeof(edit_.buffer) - 1)) {
-        for (auto i = edit_.end; i > edit_.cursor; --i)
-          edit_.buffer[i] = edit_.buffer[i - 1];
-        auto index = edit_.cursor;
-        edit_.buffer[edit_.cursor++] = c;
-        edit_.buffer[++edit_.end] = '\0';
-        while (index < edit_.end) putc(edit_.buffer[index++]);
-        while (index > edit_.cursor) {
-          putc('\b');
-          --index;
-        }
-      }
+    case State::COLLECT_PARAM1:
+      collect_param1(c);
       break;
-    case KeyAction::BACKSPACE:
-      if (edit_.end > 0 && edit_.cursor > 0) {
-        for (auto i = edit_.cursor - 1; i < edit_.end; ++i)
-          edit_.buffer[i] = edit_.buffer[i + 1];
-        --edit_.cursor;
-        --edit_.end;
-        edit_.buffer[edit_.end] = '\0';
-        putc('\b');
-        auto index = edit_.cursor;
-        while (index < edit_.end) putc(edit_.buffer[index++]);
-        putc(' ');
-        while (index > edit_.cursor) {
-          putc('\b');
-          --index;
-        }
-        putc('\b');
-      }
+    case State::WAIT_PARAM2:
+      wait_param2(c);
       break;
-    case KeyAction::DELETE:
-      if (edit_.cursor < edit_.end) {
-        for (auto i = edit_.cursor; i < edit_.end; ++i)
-          edit_.buffer[i] = edit_.buffer[i + 1];
-        --edit_.end;
-        edit_.buffer[edit_.end] = '\0';
-        auto index = edit_.cursor;
-        while (index < edit_.end) putc(edit_.buffer[index++]);
-        putc(' ');
-        while (index > edit_.cursor) {
-          putc('\b');
-          --index;
-        }
-        putc('\b');
-      }
-      break;
-    case KeyAction::CURSOR_LEFT:
-      if (edit_.cursor > 0) {
-        --edit_.cursor;
-        printf("\e[D");
-      }
-      break;
-    case KeyAction::CURSOR_RIGHT:
-      if (edit_.cursor < edit_.end) {
-        ++edit_.cursor;
-        printf("\e[C");
-      }
-      break;
-    case KeyAction::CURSOR_HOME:
-      while (edit_.cursor > 0) {
-        --edit_.cursor;
-        printf("\e[D");
-      }
-      break;
-    case KeyAction::CURSOR_END:
-      while (edit_.cursor < edit_.end) {
-        ++edit_.cursor;
-        printf("\e[C");
-      }
+    case State::COLLECT_PARAM2:
+      collect_param2(c);
       break;
   }
-  return false;
+  printf("state: %d response: 0x%02X\r\n", state_, (int)c);
 }
 
-auto Controller::tokenise() -> void {
-  command_line_.number = 0;
-  size_t index = 0;
-  auto number = 0;
-  while (index < edit_.end) {
-    // Strip spaces from the front
-    while (index < edit_.end && edit_.buffer[index] == ' ') ++index;
-    auto start = index;
-    // '{' and '[' indicate the start of json parameter capture a single entity.
-    if (edit_.buffer[start] == '{' || edit_.buffer[start] == '[') {
-      auto brackets = 1;
-      while (index < edit_.end && brackets > 0) {
-        auto c = edit_.buffer[index++];
-        if (c == '{' || c == '[')
-          ++brackets;
-        else if (c == '}' || c == ']')
-          --brackets;
-      }
-    } else {
-      while (index < edit_.end && edit_.buffer[index] != ' ') ++index;
-    }
-    command_line_.parameters[number].size = index - start;
-    command_line_.parameters[number].token = &edit_.buffer[start];
-    ++number;
-    // If we have filled the parameters the last one is the rest of the line.
-    if (number == CommandLine::MAX_PARAMETERS) {
-      command_line_.parameters[number - 1].size = edit_.end - start;
-      index = edit_.end;
-    }
+auto Controller::command(char c) -> void {
+  switch (c) {
+    case 0x1B:
+    case '\r':
+    case '\n':
+      state_ = State::WAIT_COMMAND;
+      break;
+    case 'S':
+    case 's':
+      command_ = Command::STATUS;
+      state_ = State::COLLECT_PARAM2;
+      break;
+    case 'L':
+    case 'l':
+      command_ = Command::UPDATE_LED;
+      state_ = State::WAIT_PARAM1;
+      param2_ = 0;
+      break;
+    default:
+      printf("\r\nUnrecognised command code '%c'\r\n", c);
+      break;
   }
-  command_line_.number = number;
 }
 
-auto Controller::find_command(Parameter &first) -> const Command * {
-  auto scan = commands_;
-  while (scan && scan->name && scan->handler) {
-    bool found = true;
-    size_t index = 0;
-    while (found && index < first.size) {
-      if (first.token[index] != scan->name[index]) found = false;
-      ++index;
-    }
-    if (found) return scan;
-    ++scan;
+auto Controller::wait_param1(char c) -> void {
+  switch (c) {
+    case 0x1B:
+      state_ = State::WAIT_COMMAND;
+      break;
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      param1_ = c - '0';
+      state_ = State::COLLECT_PARAM1;
+      break;
+    default:
+      break;
   }
-  return nullptr;
 }
 
-auto Controller::parse(char c) -> KeyAction {
-  if (c == '\r') return KeyAction::PROCESS;
-  if (parse_state_ == ParseState::CHARACTER) return parse_character(c);
-  return parse_escape_sequence(c);
-}
-
-auto Controller::parse_character(char c) -> KeyAction {
-  auto result = KeyAction::NONE;
-  // Translate tab into a space.
-  if (c == '\t') c = ' ';
-  if (c == '\e') {
-    parse_state_ = ParseState::ESCAPED;
-  } else if (c == '\b') {
-    result = KeyAction::BACKSPACE;
-  } else if (c >= ' ' && c < 127) {
-    result = KeyAction::ADD;
-  } else
-    printf("|0x%02X|", c);
-  return result;
-}
-
-auto Controller::parse_escape_sequence(char c) -> KeyAction {
-  auto result = KeyAction::NONE;
-  if (c >= ' ' && c < 127) {
-    switch (parse_state_) {
-      case ParseState::ESCAPED:
-        if (c == '[')
-          parse_state_ = ParseState::ESCAPED_SQBKT;
-        else if (c == 'O')
-          parse_state_ = ParseState::ESCAPED_END;
-        else {
-          printf(" <Esc%c ", c);
-          parse_state_ = ParseState::CHARACTER;
-        }
-        break;
-      case ParseState::ESCAPED_SQBKT:
-        if (c == 'A') {
-          printf(" <UP> ");
-          parse_state_ = ParseState::CHARACTER;
-        } else if (c == 'B') {
-          printf(" <DOWN> ");
-          parse_state_ = ParseState::CHARACTER;
-        } else if (c == 'C') {
-          result = KeyAction::CURSOR_RIGHT;
-          parse_state_ = ParseState::CHARACTER;
-        } else if (c == '1') {
-          parse_state_ = ParseState::ESCAPED_HOME;
-        } else if (c == '3') {
-          parse_state_ = ParseState::ESCAPED_DELETE;
-        } else if (c == 'D') {
-          parse_state_ = ParseState::CHARACTER;
-          result = KeyAction::CURSOR_LEFT;
-        } else {
-          printf(" <Esc[%c ", c);
-          parse_state_ = ParseState::CHARACTER;
-        }
-        break;
-      case ParseState::ESCAPED_END:
-        if (c == 'F')
-          result = KeyAction::CURSOR_END;
-        else {
-          printf(" <EscO%c ", c);
-        }
-        parse_state_ = ParseState::CHARACTER;
-        break;
-      case ParseState::ESCAPED_DELETE:
-        if (c == '~')
-          result = KeyAction::DELETE;
-        else {
-          printf(" <Esc[3%c ", c);
-        }
-        parse_state_ = ParseState::CHARACTER;
-        break;
-      case ParseState::ESCAPED_HOME:
-        if (c == '~')
-          result = KeyAction::CURSOR_HOME;
-        else {
-          printf(" <Esc[1%c ", c);
-        }
-        parse_state_ = ParseState::CHARACTER;
-        break;
-      default:
-        parse_state_ = ParseState::CHARACTER;
-        printf(" <Esc?%c> ", c);
-        break;
-    }
-  } else {
-    printf(" <Esc?0x%02X> ", c);
-    parse_state_ = ParseState::CHARACTER;
+auto Controller::collect_param1(char c) -> void {
+  switch (c) {
+    case 0x1B:
+      state_ = State::WAIT_COMMAND;
+      break;
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      param1_ = (param1_ * 10) + (c - '0');
+      break;
+    default:
+      state_ = State::WAIT_PARAM2;
+      break;
   }
-  return result;
 }
-#endif
+
+auto Controller::wait_param2(char c) -> void {
+  switch (c) {
+    case 0x1B:
+      state_ = State::WAIT_COMMAND;
+      break;
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      param2_ = c - '0';
+      state_ = State::COLLECT_PARAM2;
+      break;
+    default:
+      break;
+  }
+}
+
+auto Controller::collect_param2(char c) -> void {
+  switch (c) {
+    case 0x1B:
+      state_ = State::WAIT_COMMAND;
+      break;
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      param2_ = (param2_ * 10) + (c - '0');
+      break;
+    default:
+      printf("ack\r\n");
+      perform_command(command_, param1_, param2_);
+      state_ = State::WAIT_COMMAND;
+      break;
+  }
+}
 
 char Controller::output_buffer_[OUTPUT_BUFFER_SIZE];
 uint8_t Controller::rx_buffer_[RX_BUFFER_SIZE];
