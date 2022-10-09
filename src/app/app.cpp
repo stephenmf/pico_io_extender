@@ -1,0 +1,341 @@
+#include "app/app.h"
+
+#include "app_config.h"
+#include "hardware/watchdog.h"
+#include "pico/binary_info.h"
+#include "pico/bootrom.h"
+
+namespace {
+
+constexpr unsigned RESET_DELAY_MS = 100;
+
+// int64_t alarm_callback(alarm_id_t id, void *user_data) {
+//   // Put your timeout handler code in here
+//   return 0;
+// }
+
+}  // namespace
+
+auto App::init() -> void {
+  // Default LED gpio initialisation.
+  bi_decl(bi_1pin_with_name(LED_PIN, "LED"));
+  gpio_init(LED_PIN);
+  gpio_set_dir(LED_PIN, GPIO_OUT);
+
+  // SPI initialisation. This example will use SPI at 1MHz.
+  bi_decl(bi_3pins_with_func(PIN_MISO, PIN_SCK, PIN_MOSI, GPIO_FUNC_SPI));
+  bi_decl(bi_1pin_with_name(PIN_CS, "SPI0 CS"));
+  spi_init(SPI_PORT, 1000 * 1000);
+
+  gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_CS, GPIO_FUNC_SIO);
+  gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
+
+  // Chip select is active-low, so we'll initialise it to a driven-high state
+  gpio_set_dir(PIN_CS, GPIO_OUT);
+  gpio_put(PIN_CS, 1);
+
+  // I2C Initialisation. Using it at 400Khz.
+  bi_decl(bi_2pins_with_func(I2C_SDA, I2C_SCL, GPIO_FUNC_I2C));
+  i2c_init(I2C_PORT, 400 * 1000);
+
+  gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+  gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+  gpio_pull_up(I2C_SDA);
+  gpio_pull_up(I2C_SCL);
+}
+
+auto App::periodic() -> void {}
+
+auto App::perform_command(Command command, unsigned param1, unsigned param2)
+    -> void {
+  switch (command) {
+    case Command::STATUS:
+      printf("J{\"led\":\"undefined\"}\r\n");
+      break;
+    case Command::RESET:
+      if (param1 == 55, param2 == 11) {
+        // Reset to allow loading new image as if BOOTSEL was being held down.
+        reset_usb_boot(0, 0);
+      } else if (param1 == 10, param2 == 33) {
+        watchdog_reboot(0, 0, RESET_DELAY_MS);
+      }
+      break;
+    case Command::UPDATE_LED:
+      printf("J{\"led\":%s}\r\n", (param2) ? "true" : "false");
+      // Timer example code - This example fires off the callback after 2000ms
+      // add_alarm_in_ms(2000, alarm_callback, NULL, false);
+      break;
+  }
+}
+
+auto App::parse(char c) -> void {
+  switch (state_) {
+    case State::WAIT_COMMAND:
+      command(c);
+      break;
+    case State::WAIT_PARAM1:
+      wait_param1(c);
+      break;
+    case State::COLLECT_PARAM1:
+      collect_param1(c);
+      break;
+    case State::WAIT_PARAM2:
+      wait_param2(c);
+      break;
+    case State::COLLECT_PARAM2:
+      collect_param2(c);
+      break;
+  }
+  printf("state: %d response: 0x%02X\r\n", state_, (int)c);
+}
+
+auto App::command(char c) -> void {
+  switch (c) {
+    case 0x1B:
+    case '\r':
+    case '\n':
+      state_ = State::WAIT_COMMAND;
+      break;
+    case 'S':
+    case 's':
+      command_ = Command::STATUS;
+      state_ = State::COLLECT_PARAM2;
+      break;
+    case 'R':
+      command_ = Command::RESET;
+      state_ = State::WAIT_PARAM1;
+      param2_ = 0;
+      break;
+    case 'L':
+    case 'l':
+      command_ = Command::UPDATE_LED;
+      state_ = State::WAIT_PARAM1;
+      param2_ = 0;
+      break;
+    default:
+      printf("\r\nUnrecognised command code '%c'\r\n", c);
+      break;
+  }
+}
+
+auto App::wait_param1(char c) -> void {
+  switch (c) {
+    case 0x1B:
+      state_ = State::WAIT_COMMAND;
+      break;
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      param1_ = c - '0';
+      state_ = State::COLLECT_PARAM1;
+      break;
+    default:
+      break;
+  }
+}
+
+auto App::collect_param1(char c) -> void {
+  switch (c) {
+    case 0x1B:
+      state_ = State::WAIT_COMMAND;
+      break;
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      param1_ = (param1_ * 10) + (c - '0');
+      break;
+    default:
+      state_ = State::WAIT_PARAM2;
+      break;
+  }
+}
+
+auto App::wait_param2(char c) -> void {
+  switch (c) {
+    case 0x1B:
+      state_ = State::WAIT_COMMAND;
+      break;
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      param2_ = c - '0';
+      state_ = State::COLLECT_PARAM2;
+      break;
+    default:
+      break;
+  }
+}
+
+auto App::collect_param2(char c) -> void {
+  switch (c) {
+    case 0x1B:
+      state_ = State::WAIT_COMMAND;
+      break;
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      param2_ = (param2_ * 10) + (c - '0');
+      break;
+    default:
+      printf("A\r\n");
+      perform_command(command_, param1_, param2_);
+      state_ = State::WAIT_COMMAND;
+      break;
+  }
+}
+
+App::App()
+    : state_{State::WAIT_COMMAND},
+      command_{Command::STATUS},
+      param1_{0},
+      param2_{0},
+      tx_index_{0},
+      tx_sent_{0} {}
+
+auto App::read_buffer() -> std::pair<uint8_t *, size_t> {
+  return std::pair<uint8_t *, size_t>{rx_buffer_, sizeof(rx_buffer_)};
+}
+
+auto App::read_done(size_t length) -> void {
+  for (auto i = 0U; i < length; ++i) {
+    auto c = rx_buffer_[i];
+    parse(c);
+  }
+}
+
+auto App::write_buffer() -> std::pair<const char *, size_t> {
+  size_t size = 0;
+  size_t send_index = tx_sent_;
+  // If buffer has been wrapped this is true.
+  if (tx_index_ < tx_sent_)
+    size = sizeof(output_buffer_) - tx_sent_;
+  else
+    size = tx_index_ - tx_sent_;
+  return std::pair<const char *, size_t>{&output_buffer_[send_index], size};
+}
+
+auto App::write_done(size_t length) -> void {
+  size_t new_sent = tx_sent_ + length;
+  if (new_sent >= sizeof(output_buffer_)) new_sent = 0;
+  tx_sent_ = new_sent;
+}
+
+auto App::putc(char c) -> bool {
+  auto new_index = tx_index_ + 1;
+  // wrap the buffer.
+  if (new_index >= sizeof(output_buffer_)) new_index = 0;
+  // Check for buffer full.
+  if (new_index == tx_sent_) return false;
+  output_buffer_[tx_index_] = c;
+  tx_index_ = new_index;
+  return true;
+}
+
+auto App::printf(FORMAT format...) -> int {
+  va_list args;
+  va_start(args, format);
+  int result = vprintf(format, args);
+  va_end(args);
+  return result;
+}
+
+auto App::vprintf(FORMAT format, va_list args) -> int {
+  int result;
+  bool room = true;
+  while (room && *format != '\0') {
+    if (*format == '%') {
+      ++format;
+      auto type = conversion_.parse(format);
+      if (type == Conversion::Type::UNKNOWN) break;
+      const char *buffer = nullptr;
+      switch (type) {
+        case Conversion::Type::PERCENT: {
+          buffer = conversion_.from_character('%');
+        } break;
+        case Conversion::Type::CHARACTER: {
+          auto value = va_arg(args, int);
+          buffer = conversion_.from_character(value);
+        } break;
+        case Conversion::Type::SIGNED_INT: {
+          auto value = va_arg(args, int);
+          buffer = conversion_.from_signed_int(value);
+        } break;
+        case Conversion::Type::UNSIGNED_INT: {
+          auto value = va_arg(args, unsigned);
+          buffer = conversion_.from_unsigned_int(value);
+        } break;
+        case Conversion::Type::LONG_SIGNED_INT: {
+          auto value = va_arg(args, long);
+          buffer = conversion_.from_signed_int(value);
+        } break;
+        case Conversion::Type::LONG_UNSIGNED_INT: {
+          auto value = va_arg(args, unsigned long);
+          buffer = conversion_.from_unsigned_int(value);
+        } break;
+        case Conversion::Type::LONG_LONG_SIGNED_INT: {
+          auto value = va_arg(args, long long);
+          buffer = conversion_.from_signed_int(value);
+        } break;
+        case Conversion::Type::LONG_LONG_UNSIGNED_INT: {
+          auto value = va_arg(args, unsigned long long);
+          buffer = conversion_.from_unsigned_int(value);
+        } break;
+        case Conversion::Type::POINTER: {
+          auto value = (uint32_t)va_arg(args, void *);
+          buffer = conversion_.from_unsigned_int(value);
+        } break;
+        case Conversion::Type::DOUBLE: {
+          auto value = va_arg(args, double);
+          buffer = conversion_.from_double(value);
+        } break;
+        case Conversion::Type::STRING: {
+          auto value = va_arg(args, char *);
+          buffer = conversion_.from_string(value);
+        } break;
+        default:
+          break;
+      }
+      if (buffer) {
+        while (room && *buffer != '\0') room = putc(*buffer++);
+      }
+    } else {
+      room = putc(*format++);
+      ++result;
+    }
+  }
+  return result;
+}
+
+char App::output_buffer_[OUTPUT_BUFFER_SIZE];
+uint8_t App::rx_buffer_[RX_BUFFER_SIZE];
+Conversion App::conversion_;

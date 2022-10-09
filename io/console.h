@@ -58,8 +58,6 @@ class Console {
     size_t end;
   };
 
-  auto static get(const char *banner, const Command *commands) -> Console &;
-
   Console(const char *banner, const Command *commands);
 
   auto read_buffer() -> std::pair<uint8_t *, size_t>;

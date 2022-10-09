@@ -43,14 +43,17 @@ target_sources(greenhouse
   PUBLIC
     io/conversion.h
     io/console.h
-    controller/controller.h
-    config.h
+    io/app_api.h
+    io/framework.h
+    app/app.h
+    app_config.h
   PRIVATE
     src/io/conversion.cpp
     src/io/console.cpp
-    src/usb_descriptors.cpp
-    src/controller/controller.cpp
-    greenhouse.cpp
+    src/io/usb_descriptors.cpp
+    src/io/framework.cpp
+    src/app/app.cpp
+    src/main.cpp
 )
 
 target_link_libraries(greenhouse

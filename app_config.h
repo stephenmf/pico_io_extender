@@ -1,17 +1,9 @@
-#ifndef CONFIG_H
-#define CONFIG_H
+#ifndef APP_CONFIG_H
+#define APP_CONFIG_H
 
-#include "hardware/clocks.h"
-#include "hardware/dma.h"
-#include "hardware/gpio.h"
 #include "hardware/i2c.h"
-#include "hardware/pio.h"
 #include "hardware/spi.h"
-#include "hardware/timer.h"
-#include "hardware/watchdog.h"
-#include "pico/binary_info.h"
 #include "pico/stdlib.h"
-#include "tusb.h"
 
 // LED defines.
 #ifdef PICO_DEFAULT_LED_PIN
@@ -46,4 +38,4 @@
 #define I2C_SDA 8
 #define I2C_SCL 9
 
-#endif  // CONFIG_H
+#endif  // APP_CONFIG_H

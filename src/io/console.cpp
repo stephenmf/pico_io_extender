@@ -2,13 +2,6 @@
 
 #include <cstdarg>
 
-// #include "app/hal/util.h"
-
-auto Console::get(const char *banner, const Command *commands) -> Console & {
-  static Console console{banner, commands};
-  return console;
-}
-
 Console::Console(const char *banner, const Command *commands)
     : banner_{banner},
       commands_{commands},
