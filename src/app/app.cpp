@@ -16,11 +16,18 @@ constexpr unsigned RESET_DELAY_MS = 100;
 
 }  // namespace
 
+App::App()
+    : state_{State::WAIT_COMMAND},
+      led_{},
+      command_{Command::STATUS},
+      index_{0},
+      collect_{0},
+      tx_index_{0},
+      tx_sent_{0} {}
+
 auto App::init() -> void {
-  // Default LED gpio initialisation.
   bi_decl(bi_1pin_with_name(LED_PIN, "LED"));
-  gpio_init(LED_PIN);
-  gpio_set_dir(LED_PIN, GPIO_OUT);
+  led_.init(LED_PIN);
 
   // SPI initialisation. This example will use SPI at 1MHz.
   bi_decl(bi_3pins_with_func(PIN_MISO, PIN_SCK, PIN_MOSI, GPIO_FUNC_SPI));
@@ -46,24 +53,24 @@ auto App::init() -> void {
   gpio_pull_up(I2C_SCL);
 }
 
-auto App::periodic() -> void {}
+auto App::periodic() -> void { led_.periodic(); }
 
-auto App::perform_command(Command command, unsigned param1, unsigned param2)
-    -> void {
+auto App::perform_command(Command command) -> void {
   switch (command) {
     case Command::STATUS:
-      printf("J{\"led\":\"undefined\"}\r\n");
+      printf("J{\"led\":\"%d\"}\r\n", led_.get());
       break;
     case Command::RESET:
-      if (param1 == 55, param2 == 11) {
+      if (params_[0] == 55, params_[1] == 11) {
         // Reset to allow loading new image as if BOOTSEL was being held down.
         reset_usb_boot(0, 0);
-      } else if (param1 == 10, param2 == 33) {
+      } else if (params_[0] == 10, params_[1] == 33) {
         watchdog_reboot(0, 0, RESET_DELAY_MS);
       }
       break;
     case Command::UPDATE_LED:
-      printf("J{\"led\":%s}\r\n", (param2) ? "true" : "false");
+      led_.config(params_[0], params_[1]);
+      printf("A\r\n");
       // Timer example code - This example fires off the callback after 2000ms
       // add_alarm_in_ms(2000, alarm_callback, NULL, false);
       break;
@@ -75,17 +82,11 @@ auto App::parse(char c) -> void {
     case State::WAIT_COMMAND:
       command(c);
       break;
-    case State::WAIT_PARAM1:
-      wait_param1(c);
+    case State::WAIT_PARAMS:
+      wait_params(c);
       break;
-    case State::COLLECT_PARAM1:
-      collect_param1(c);
-      break;
-    case State::WAIT_PARAM2:
-      wait_param2(c);
-      break;
-    case State::COLLECT_PARAM2:
-      collect_param2(c);
+    case State::COLLECT_PARAMS:
+      collect_params(c);
       break;
   }
   printf("state: %d response: 0x%02X\r\n", state_, (int)c);
@@ -101,26 +102,29 @@ auto App::command(char c) -> void {
     case 'S':
     case 's':
       command_ = Command::STATUS;
-      state_ = State::COLLECT_PARAM2;
+      perform_command(command_);
+      state_ = State::WAIT_COMMAND;
       break;
     case 'R':
       command_ = Command::RESET;
-      state_ = State::WAIT_PARAM1;
-      param2_ = 0;
+      index_ = 0;
+      collect_ = 2;
+      state_ = State::WAIT_PARAMS;
       break;
     case 'L':
     case 'l':
       command_ = Command::UPDATE_LED;
-      state_ = State::WAIT_PARAM1;
-      param2_ = 0;
+      index_ = 0;
+      collect_ = 2;
+      state_ = State::WAIT_PARAMS;
       break;
     default:
-      printf("\r\nUnrecognised command code '%c'\r\n", c);
+      printf("U'%c'\r\n", c);
       break;
   }
 }
 
-auto App::wait_param1(char c) -> void {
+auto App::wait_params(char c) -> void {
   switch (c) {
     case 0x1B:
       state_ = State::WAIT_COMMAND;
@@ -135,15 +139,15 @@ auto App::wait_param1(char c) -> void {
     case '7':
     case '8':
     case '9':
-      param1_ = c - '0';
-      state_ = State::COLLECT_PARAM1;
+      params_[index_] = c - '0';
+      state_ = State::COLLECT_PARAMS;
       break;
     default:
       break;
   }
 }
 
-auto App::collect_param1(char c) -> void {
+auto App::collect_params(char c) -> void {
   switch (c) {
     case 0x1B:
       state_ = State::WAIT_COMMAND;
@@ -158,69 +162,19 @@ auto App::collect_param1(char c) -> void {
     case '7':
     case '8':
     case '9':
-      param1_ = (param1_ * 10) + (c - '0');
+      params_[index_] = (params_[index_] * 10) + (c - '0');
       break;
     default:
-      state_ = State::WAIT_PARAM2;
+      ++index_;
+      if (index_ >= collect_) {
+        perform_command(command_);
+        state_ = State::WAIT_COMMAND;
+      } else {
+        state_ = State::WAIT_PARAMS;
+      }
       break;
   }
 }
-
-auto App::wait_param2(char c) -> void {
-  switch (c) {
-    case 0x1B:
-      state_ = State::WAIT_COMMAND;
-      break;
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9':
-      param2_ = c - '0';
-      state_ = State::COLLECT_PARAM2;
-      break;
-    default:
-      break;
-  }
-}
-
-auto App::collect_param2(char c) -> void {
-  switch (c) {
-    case 0x1B:
-      state_ = State::WAIT_COMMAND;
-      break;
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9':
-      param2_ = (param2_ * 10) + (c - '0');
-      break;
-    default:
-      printf("A\r\n");
-      perform_command(command_, param1_, param2_);
-      state_ = State::WAIT_COMMAND;
-      break;
-  }
-}
-
-App::App()
-    : state_{State::WAIT_COMMAND},
-      command_{Command::STATUS},
-      param1_{0},
-      param2_{0},
-      tx_index_{0},
-      tx_sent_{0} {}
 
 auto App::read_buffer() -> std::pair<uint8_t *, size_t> {
   return std::pair<uint8_t *, size_t>{rx_buffer_, sizeof(rx_buffer_)};

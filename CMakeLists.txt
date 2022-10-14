@@ -45,6 +45,7 @@ target_sources(greenhouse
     io/console.h
     io/app_api.h
     io/framework.h
+    io/led.h
     app/app.h
     app_config.h
   PRIVATE
@@ -52,6 +53,7 @@ target_sources(greenhouse
     src/io/console.cpp
     src/io/usb_descriptors.cpp
     src/io/framework.cpp
+    src/io/led.cpp
     src/app/app.cpp
     src/main.cpp
 )
