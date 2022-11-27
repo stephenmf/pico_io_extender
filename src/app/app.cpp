@@ -19,6 +19,8 @@ constexpr unsigned RESET_DELAY_MS = 100;
 App::App()
     : state_{State::WAIT_COMMAND},
       led_{},
+      valve0_{},
+      valve1_{},
       command_{Command::STATUS},
       index_{0},
       collect_{0},
@@ -28,6 +30,12 @@ App::App()
 auto App::init() -> void {
   bi_decl(bi_1pin_with_name(LED_PIN, "LED"));
   led_.init(LED_PIN);
+
+  bi_decl(bi_1pin_with_name(LED_PIN, "VALVE0"));
+  valve0_.init(VALVE0_PIN);
+
+  bi_decl(bi_1pin_with_name(LED_PIN, "VALVE1"));
+  valve1_.init(VALVE1_PIN);
 
   // SPI initialisation. This example will use SPI at 1MHz.
   bi_decl(bi_3pins_with_func(PIN_MISO, PIN_SCK, PIN_MOSI, GPIO_FUNC_SPI));
@@ -53,12 +61,17 @@ auto App::init() -> void {
   gpio_pull_up(I2C_SCL);
 }
 
-auto App::periodic() -> void { led_.periodic(); }
+auto App::periodic() -> void {
+  led_.periodic();
+  valve0_.periodic();
+  valve1_.periodic();
+}
 
 auto App::perform_command(Command command) -> void {
   switch (command) {
     case Command::STATUS:
-      printf("J{\"led\":\"%d\"}\r\n", led_.get());
+      printf("J{\"led\":%d,\"valve0\":%d,\"valve0\":%d}\r\n", led_.get(),
+             valve0_.get(), valve1_.get());
       break;
     case Command::RESET:
       if (params_[0] == 55, params_[1] == 11) {
@@ -74,13 +87,26 @@ auto App::perform_command(Command command) -> void {
       // Timer example code - This example fires off the callback after 2000ms
       // add_alarm_in_ms(2000, alarm_callback, NULL, false);
       break;
+    case Command::VALVE_PULSE:
+      if (params_[0] == 0) {
+        valve0_.pulse(params_[1]);
+        printf("A\r\n");
+      } else if (params_[0] == 1) {
+        valve1_.pulse(params_[1]);
+        printf("A\r\n");
+      } else {
+        printf("N\r\n");
+      }
+      // Timer example code - This example fires off the callback after 2000ms
+      // add_alarm_in_ms(2000, alarm_callback, NULL, false);
+      break;
   }
 }
 
 auto App::parse(char c) -> void {
   switch (state_) {
     case State::WAIT_COMMAND:
-      command(c);
+      wait_command(c);
       break;
     case State::WAIT_PARAMS:
       wait_params(c);
@@ -92,7 +118,7 @@ auto App::parse(char c) -> void {
   printf("state: %d response: 0x%02X\r\n", state_, (int)c);
 }
 
-auto App::command(char c) -> void {
+auto App::wait_command(char c) -> void {
   switch (c) {
     case 0x1B:
     case '\r':
@@ -107,6 +133,13 @@ auto App::command(char c) -> void {
       break;
     case 'R':
       command_ = Command::RESET;
+      index_ = 0;
+      collect_ = 2;
+      state_ = State::WAIT_PARAMS;
+      break;
+    case 'V':
+    case 'v':
+      command_ = Command::VALVE_PULSE;
       index_ = 0;
       collect_ = 2;
       state_ = State::WAIT_PARAMS;

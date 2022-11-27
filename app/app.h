@@ -3,6 +3,7 @@
 
 #include <cstdarg>
 
+#include "app/valve.h"
 #include "io/app_api.h"
 #include "io/conversion.h"
 #include "io/led.h"
@@ -14,7 +15,7 @@ class App : public AppApi {
 
  public:
   enum class State { WAIT_COMMAND = 0, WAIT_PARAMS, COLLECT_PARAMS };
-  enum class Command { STATUS = 0, RESET, UPDATE_LED };
+  enum class Command { STATUS = 0, RESET, VALVE_PULSE, UPDATE_LED };
 
   App();
 
@@ -41,13 +42,15 @@ class App : public AppApi {
 
   auto perform_command(Command command) -> void;
   auto parse(char c) -> void;
-  auto command(char c) -> void;
+  auto wait_command(char c) -> void;
   auto wait_params(char c) -> void;
   auto collect_params(char c) -> void;
   auto execute(char c) -> void;
 
   State state_;
   Led led_;
+  Valve valve0_;
+  Valve valve1_;
 
   Command command_;
   unsigned params_[MAX_PARMS];

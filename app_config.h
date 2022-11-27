@@ -20,6 +20,10 @@
 #define UART_RX_PIN PICO_DEFAULT_UART_RX_PIN
 #endif
 
+// VALVE Defines
+#define VALVE0_PIN 2
+#define VALVE1_PIN 3
+
 // SPI Defines
 // We are going to use SPI 0, and allocate it to the following GPIO pins
 // Pins can be changed, see the GPIO function select table in the datasheet for

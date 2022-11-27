@@ -1,14 +1,14 @@
-#ifndef IO_LED_H
-#define IO_LED_H
+#ifndef APP_VALVE_H
+#define APP_VALVE_H
 
 #include "hardware/gpio.h"
 
-class Led {
+class Valve {
  public:
   auto init(uint pin) -> void;
   auto periodic() -> void;
 
-  auto config(unsigned on_duration_ms, unsigned off_duration_ms) -> void;
+  auto pulse(unsigned on_duration_sec) -> void;
 
   auto set(bool level) { gpio_put(pin_, level); }
 
@@ -16,9 +16,7 @@ class Led {
 
  private:
   uint pin_;
-  unsigned on_duration_ms_;
-  unsigned off_duration_ms_;
   uint64_t next_;
 };
 
-#endif  // IO_LED_H
+#endif  // APP_VALVE_H
