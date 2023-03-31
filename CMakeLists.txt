@@ -12,7 +12,7 @@ set(PICO_SDK_PATH "/home/pi/pico/pico-sdk")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(greenhouse C CXX ASM)
+project(pico_io_extender C CXX ASM)
 
 set(PICO_CXX_ENABLE_EXCEPTIONS 1)
 
@@ -23,23 +23,22 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(greenhouse
-)
+add_executable(pico_io_extender)
 
-pico_set_program_name(greenhouse "greenhouse")
-pico_set_program_version(greenhouse "0.1")
+pico_set_program_name(pico_io_extender "pico_io_extender")
+pico_set_program_version(pico_io_extender "0.1")
 
-pico_enable_stdio_uart(greenhouse 1)
+pico_enable_stdio_uart(pico_io_extender 1)
 
 # Make sure TinyUSB can find tusb_config.h
-target_include_directories(greenhouse PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+target_include_directories(pico_io_extender PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 # Add the standard library to the build
-target_link_libraries(greenhouse
+target_link_libraries(pico_io_extender
     pico_stdlib
 )
 
-target_sources(greenhouse
+target_sources(pico_io_extender
   PUBLIC
     io/conversion.h
     io/console.h
@@ -60,7 +59,7 @@ target_sources(greenhouse
     src/main.cpp
 )
 
-target_link_libraries(greenhouse
+target_link_libraries(pico_io_extender
     hardware_spi
     hardware_i2c
     hardware_dma
@@ -71,4 +70,4 @@ target_link_libraries(greenhouse
     tinyusb_device
 )
 
-pico_add_extra_outputs(greenhouse)
+pico_add_extra_outputs(pico_io_extender)
